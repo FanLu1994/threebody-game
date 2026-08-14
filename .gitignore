@@ -11,3 +11,6 @@ __pycache__/
 *.log
 .vercel/
 .DS_Store
+
+# Vercel CLI 本地文件
+game/.env.local
