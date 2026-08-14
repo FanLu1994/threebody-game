@@ -1,0 +1,13 @@
+# 小说原文全文为版权文本，不入库（本地保留用于阅读）
+*.txt
+
+# 测试依赖与产物
+test/node_modules/
+test/shots/
+test/package-lock.json
+
+# 运行时杂项
+__pycache__/
+*.log
+.vercel/
+.DS_Store

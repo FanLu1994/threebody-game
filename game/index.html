@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>三体 · 红岸纪事 — 3D 互动游戏</title>
+<link rel="icon" href="favicon.png">
+<style>
+  :root {
+    --red: #c8392b;
+    --amber: #e8a24a;
+    --cyan: #7ec8ff;
+    --panel-bg: rgba(8, 12, 20, 0.82);
+    --serif: "Noto Serif SC", "Source Han Serif SC", "STZhongsong", "SimSun", serif;
+    --sans: "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  body { font-family: var(--sans); color: #d8dee8; }
+  #app { position: fixed; inset: 0; }
+  #scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* 暗角 */
+  #app::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 5;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+  }
+  #fade { position: absolute; inset: 0; background: #000; opacity: 1; pointer-events: none; z-index: 60; transition: opacity .7s ease; }
+  #lb-top, #lb-bottom {
+    position: absolute; left: 0; right: 0; height: 9vh; background: #000; z-index: 20;
+    transition: transform .8s ease; pointer-events: none;
+  }
+  #lb-top { top: 0; transform: translateY(-100%); }
+  #lb-bottom { bottom: 0; transform: translateY(100%); }
+  #lb-top.show { transform: none; } #lb-bottom.show { transform: none; }
+
+  #ui-root { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
+  #ui-root > * { pointer-events: auto; }
+
+  /* ---------- 对话框 ---------- */
+  #dialog {
+    position: absolute; left: 50%; bottom: 4.5vh; transform: translateX(-50%);
+    width: min(860px, 92vw); background: var(--panel-bg);
+    border: 1px solid rgba(126, 200, 255, 0.25); border-left: 3px solid var(--red);
+    padding: 16px 22px 12px; cursor: pointer; backdrop-filter: blur(4px);
+    box-shadow: 0 4px 30px rgba(0,0,0,.6);
+    z-index: 36; /* 高于 big-btn(35)：对话框弹出时，重叠区域的点击交给对话框推进剧情 */
+  }
+  #dialog .who { font-family: var(--serif); color: var(--amber); font-size: 15px; letter-spacing: .2em; margin-bottom: 6px; }
+  #dialog .txt { font-size: 17px; line-height: 1.75; min-height: 3.2em; color: #e8ecf2; }
+  #dialog .hint { text-align: right; color: #6a7890; font-size: 12px; margin-top: 4px; }
+  .hidden { display: none !important; }
+
+  /* ---------- 选项 ---------- */
+  #choice-panel {
+    position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%);
+    display: flex; flex-direction: column; gap: 14px; align-items: center; z-index: 40;
+  }
+  .choice-title { font-family: var(--serif); font-size: 22px; color: #f0e6d0; text-align: center; margin-bottom: 6px; text-shadow: 0 0 20px #000; }
+  .choice-btn {
+    min-width: 340px; padding: 13px 26px; font-size: 17px; font-family: var(--serif);
+    background: rgba(10, 16, 26, 0.9); color: #cfe0f0; cursor: pointer;
+    border: 1px solid rgba(126,200,255,.35); transition: all .18s;
+  }
+  .choice-btn:hover { background: rgba(30, 50, 80, 0.95); border-color: var(--cyan); transform: translateX(4px); }
+  .choice-btn.danger { border-color: rgba(200, 57, 43, .6); color: #ffb0a0; }
+  .choice-btn.danger:hover { background: rgba(90, 20, 14, .9); border-color: var(--red); }
+
+  /* ---------- 提示 / 大字 / 标题卡 ---------- */
+  #toast {
+    position: absolute; top: 12vh; left: 50%; transform: translate(-50%, -16px);
+    background: rgba(8, 14, 22, .88); border: 1px solid rgba(232, 162, 74, .4);
+    color: #ffd9a0; padding: 10px 26px; font-size: 15px; opacity: 0; transition: all .35s; letter-spacing: .08em;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #objective {
+    position: absolute; top: 2.4vh; right: 2.4vh; max-width: 340px;
+    background: var(--panel-bg); border: 1px solid rgba(126,200,255,.25); border-left: 3px solid var(--cyan);
+    padding: 10px 14px; font-size: 13.5px; line-height: 1.6; color: #c8d8ea;
+  }
+  #bigtext {
+    position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%) scale(.96);
+    font-family: var(--serif); font-size: 44px; color: #fff; letter-spacing: .18em;
+    text-align: center; text-shadow: 0 0 30px rgba(0,0,0,.9), 0 0 60px rgba(0,0,0,.8);
+    opacity: 0; transition: all .5s; pointer-events: none; line-height: 1.5;
+  }
+  #bigtext.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #bigtext .red { color: #ff5a3a; }
+  #bigtext .huge { font-size: 88px; color: var(--amber); }
+  #titlecard {
+    position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center;
+    background: #000; opacity: 0; transition: opacity .8s; pointer-events: none; z-index: 55;
+  }
+  #titlecard.show { opacity: 1; }
+  #titlecard .tc-main { font-family: var(--serif); font-size: 54px; letter-spacing: .5em; color: #e8d8b8; text-indent: .5em; }
+  #titlecard .tc-sub { font-family: var(--serif); font-size: 20px; letter-spacing: .3em; color: #8a94a8; margin-top: 22px; text-indent: .3em; }
+
+  /* ---------- 章节 HUD ---------- */
+  .ch-hud { position: absolute; top: 12vh; right: 2.4vw; display: flex; flex-direction: column; gap: 12px; align-items: flex-end; }
+  .ch-hud.left { left: 2.4vw; right: auto; align-items: flex-start; }
+  .panel {
+    background: var(--panel-bg); border: 1px solid rgba(126,200,255,.22);
+    padding: 12px 16px; min-width: 270px; backdrop-filter: blur(3px);
+  }
+  .p-title { font-family: var(--serif); color: var(--amber); font-size: 15px; letter-spacing: .15em; margin-bottom: 8px; }
+  .p-title.small { font-size: 12.5px; margin-bottom: 5px; }
+  .panel .row { display: flex; align-items: center; gap: 10px; margin: 7px 0; font-size: 13px; color: #aab8ca; }
+  .panel .row-line { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13.5px; color: #aab8ca; flex-wrap: wrap; }
+  .panel .row-line b { color: #e8eef6; font-weight: normal; }
+  .gap { width: 10px; }
+  .gauge { position: relative; flex: 1; height: 8px; background: rgba(255,255,255,.08); border-radius: 4px; min-width: 120px; }
+  .gauge .goal { position: absolute; left: 50%; top: -3px; width: 2px; height: 14px; background: var(--cyan); }
+  .gauge .marker { position: absolute; top: -3px; width: 6px; height: 14px; background: var(--amber); border-radius: 2px; transition: left .1s linear; }
+  .gain { font-size: 14px; color: #ffd9a0; margin-top: 6px; }
+  .hint-line { font-size: 12px; color: #7a8aa0; margin-top: 6px; }
+  .tempbar { position: relative; width: 120px; height: 9px; background: rgba(255,255,255,.08); border-radius: 4px; overflow: hidden; }
+  .tempbar.small { width: 90px; }
+  .tempbar > div { height: 100%; width: 0; transition: width .3s, background .3s; }
+  .sky-legend div { font-size: 12.5px; color: #9ab0c4; line-height: 1.7; }
+  .timer-ring { width: 34px; height: 34px; border-radius: 50%; background: conic-gradient(#ff5a3a 100%, transparent 0); margin: 8px auto 0; position: relative; }
+  .timer-ring::after { content: ''; position: absolute; inset: 4px; border-radius: 50%; background: var(--panel-bg); }
+  .red { color: #ff6a4a; }
+
+  /* ---------- 按钮 ---------- */
+  .big-btn {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: 13vh; padding: 14px 44px; font-size: 19px; font-family: var(--serif); letter-spacing: .3em; text-indent: .3em;
+    background: rgba(12, 20, 32, .92); color: #ffd9a0; border: 1px solid rgba(232,162,74,.5);
+    cursor: pointer; transition: all .18s; z-index: 35;
+  }
+  .big-btn:hover { background: rgba(40, 60, 90, .95); border-color: var(--amber); box-shadow: 0 0 24px rgba(232,162,74,.25); }
+  .big-btn.danger { color: #ffb0a0; border-color: rgba(200, 57, 43, .65); }
+  .big-btn.danger:hover { background: rgba(96, 22, 15, .95); border-color: var(--red); box-shadow: 0 0 24px rgba(200,57,43,.3); }
+  .big-btn.warn { bottom: 13vh; }
+  .big-btn.pulse { animation: pulse 1.4s infinite; }
+  .big-btn:disabled { opacity: 0.35; cursor: default; }
+  .big-btn:disabled:hover { background: rgba(12, 20, 32, .92); border-color: rgba(232,162,74,.5); box-shadow: none; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 8px rgba(232,162,74,.2); } 50% { box-shadow: 0 0 26px rgba(232,162,74,.55); } }
+  .big-btn.dark-flag { border-color: #444; color: #ddd; }
+  .big-btn.light-flag { border-color: #ccc; color: #fff; }
+  .big-btn.dark-flag, .big-btn.light-flag { position: fixed; }
+  .big-btn.dark-flag { left: calc(50% - 130px); }
+  .big-btn.light-flag { left: calc(50% + 130px); }
+
+  .redflash { position: absolute; inset: 0; background: rgba(200, 30, 10, .25); pointer-events: none; z-index: 38; animation: rf .7s forwards; }
+  @keyframes rf { from { opacity: 1; } to { opacity: 0; } }
+
+  .center-panel {
+    position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%);
+    background: rgba(8, 12, 20, .92); border: 1px solid rgba(200, 57, 43, .4);
+    padding: 26px 40px; text-align: center; max-width: 560px;
+  }
+  .cp-title { font-family: var(--serif); font-size: 24px; color: #ff8a6a; letter-spacing: .2em; margin-bottom: 12px; }
+  .cp-text { font-size: 14.5px; line-height: 1.8; color: #c8d0dc; }
+
+  .terminal {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(700px, 90vw); background: rgba(2, 8, 6, .93);
+    border: 1px solid rgba(90, 220, 140, .4); box-shadow: 0 0 40px rgba(0,0,0,.8);
+    font-family: Consolas, monospace;
+  }
+  .t-bar { background: rgba(90, 220, 140, .12); color: #8de8a8; padding: 6px 14px; font-size: 13px; letter-spacing: .1em; border-bottom: 1px solid rgba(90,220,140,.3); }
+  .t-body { padding: 16px 20px; min-height: 220px; max-height: 40vh; overflow: hidden; }
+  .t-body div { color: #8de8a8; font-size: 14.5px; line-height: 1.9; animation: fadein .4s; }
+  .t-body .t-warn { color: #ff5a3a; font-size: 21px; text-align: center; margin: 18px 0; letter-spacing: .1em; text-shadow: 0 0 14px rgba(255, 60, 30, .6); }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+  .credits {
+    position: absolute; left: 50%; top: 34%; transform: translate(-50%, -50%); text-align: center;
+  }
+  .cr-title { font-family: var(--serif); font-size: 42px; letter-spacing: .4em; text-indent: .4em; color: #e8d8b8; margin-bottom: 18px; }
+  .cr-line { font-size: 14px; color: #aab8ca; line-height: 2; }
+  .cr-line.dim { color: #5a6878; margin-top: 10px; letter-spacing: .3em; }
+
+  /* ---------- 主菜单 ---------- */
+  #menu {
+    position: absolute; inset: 0; z-index: 45; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 6px;
+    background: linear-gradient(180deg, rgba(0,0,0,.15) 0%, rgba(0,0,0,.55) 75%, rgba(0,0,0,.85) 100%);
+  }
+  #menu .m-title {
+    font-family: var(--serif); font-size: 110px; letter-spacing: .35em; text-indent: .35em;
+    color: #f0e2c8; text-shadow: 0 0 60px rgba(255, 140, 60, .35), 0 4px 20px #000;
+  }
+  #menu .m-sub { font-family: var(--serif); font-size: 17px; letter-spacing: .5em; text-indent: .5em; color: #b8a888; margin-top: 2px; }
+  #menu .m-sub2 { font-size: 12.5px; color: #6a7890; margin: 14px 0 30px; letter-spacing: .2em; }
+  .menu-btns { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+  .menu-btns button {
+    width: 280px; padding: 12px; font-size: 16px; font-family: var(--serif); letter-spacing: .25em; text-indent: .25em;
+    background: rgba(8, 14, 22, .8); color: #d8c8a8; border: 1px solid rgba(216, 200, 168, .35); cursor: pointer; transition: all .2s;
+  }
+  .menu-btns button:hover { background: rgba(50, 40, 26, .85); border-color: var(--amber); color: #ffe8c0; }
+  #btn-mute { position: absolute; top: 2.4vh; right: 2.4vw; width: auto; padding: 8px 16px; font-size: 13px; }
+
+  .modal {
+    position: absolute; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, .7);
+  }
+  .modal-box {
+    background: #0c1220; border: 1px solid rgba(126, 200, 255, .3); padding: 30px 40px;
+    width: min(680px, 92vw); max-height: 80vh; overflow: auto;
+  }
+  .modal-box h3 { font-family: var(--serif); color: var(--amber); letter-spacing: .2em; margin-bottom: 16px; font-size: 20px; }
+  .modal-box .mb-row { font-size: 14px; line-height: 2; color: #c0ccd8; }
+  .modal-box .mb-row b { color: #ffd9a0; font-weight: normal; }
+  #chapter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
+  .chapter-card {
+    padding: 14px; text-align: left; background: rgba(16, 24, 38, .9); border: 1px solid rgba(126,200,255,.25);
+    cursor: pointer; transition: all .18s; color: #d0dcea;
+  }
+  .chapter-card:hover { border-color: var(--amber); background: rgba(40, 36, 24, .9); }
+  .chapter-card.locked { opacity: .38; cursor: not-allowed; }
+  .chapter-card .cc-n { font-size: 11.5px; color: #7a8aa0; letter-spacing: .15em; }
+  .chapter-card .cc-t { font-family: var(--serif); font-size: 19px; color: #ffd9a0; margin: 4px 0; }
+  .chapter-card .cc-d { font-size: 11.5px; color: #8a98a8; }
+  .close-panel { margin-top: 18px; }
+
+  #loading { position: absolute; inset: 0; z-index: 99; background: #000; display: flex; align-items: center; justify-content: center; color: #8a94a8; font-size: 14px; letter-spacing: .3em; }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="scene"></canvas>
+
+  <div id="ui-root">
+    <div id="lb-top"></div><div id="lb-bottom"></div>
+    <div id="objective" class="hidden"></div>
+    <div id="toast"></div>
+    <div id="bigtext"></div>
+    <div id="titlecard"></div>
+
+    <div id="choice-panel" class="hidden"></div>
+
+    <div id="dialog" class="hidden">
+      <div class="who"></div>
+      <div class="txt"></div>
+      <div class="hint">▼ 点击继续</div>
+    </div>
+
+    <div id="menu">
+      <div class="m-title">三 体</div>
+      <div class="m-sub">红 岸 纪 事</div>
+      <div class="m-sub2">THE THREE-BODY PROBLEM · 3D 互动游戏 · 同人作品，改编自刘慈欣《三体》三部曲</div>
+      <div class="menu-btns">
+        <button id="btn-start">开始游戏</button>
+        <button id="btn-chapters">章节选择</button>
+        <button id="btn-help">操作说明</button>
+      </div>
+      <button id="btn-mute" class="menu-btns">音效：开</button>
+    </div>
+
+    <div id="chapter-panel" class="modal hidden">
+      <div class="modal-box">
+        <h3>章节选择</h3>
+        <div id="chapter-grid"></div>
+        <button class="close-panel big-btn" style="position:static;transform:none;display:block;margin:18px auto 0">关 闭</button>
+      </div>
+    </div>
+
+    <div id="help-panel" class="modal hidden">
+      <div class="modal-box">
+        <h3>操作说明</h3>
+        <div class="mb-row">
+          <b>通用</b>：点击 / 空格 / 回车 —— 推进对话。<br>
+          <b>第一章 红岸</b>：按住鼠标拖动画面，转动天线；增益锁定后点击"发射"。<br>
+          <b>第二章 乱纪元</b>：观察飞星数量与温度，及时点击"脱水"避灾、"浸泡"复苏。<br>
+          <b>第三章 人列计算机</b>：根据输入旗色（黑=1 白=0）点击对应按钮，或按键盘 0 / 1。<br>
+          <b>第四章 古筝行动</b>：在船身恰好压住切割面时点击"收紧纳米丝"。<br>
+          <b>过场</b>：第三章演出中可按 Esc 跳过。<br><br>
+          进度自动保存在浏览器本地。
+        </div>
+        <button class="close-panel big-btn" style="position:static;transform:none;display:block;margin:18px auto 0">关 闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="fade"></div>
+  <div id="loading">正在初始化 ……</div>
+</div>
+
+<script>
+  /* 调试：任何脚本错误以浮层显示 */
+  window.addEventListener('error', function (e) {
+    var d = document.createElement('div');
+    d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;background:#701c10;color:#fff;font:12px/1.5 monospace;padding:6px 10px;white-space:pre-wrap;';
+    d.textContent = 'JS错误: ' + e.message + ' @ ' + (e.filename || '') + ':' + (e.lineno || '');
+    document.body.appendChild(d);
+  });
+</script>
+<script src="lib/three.min.js"></script>
+<script src="js/engine.js?v=3"></script>
+<script src="js/ch0_prologue.js?v=3"></script>
+<script src="js/ch1_redcoast.js?v=3"></script>
+<script src="js/ch2_chaotic.js?v=3"></script>
+<script src="js/ch3_humancomputer.js?v=3"></script>
+<script src="js/ch4_guzheng.js?v=3"></script>
+<script src="js/ch5_finale.js?v=3"></script>
+<script src="js/main.js?v=3"></script>
+<script>
+  window.addEventListener('load', () => {
+    const l = document.getElementById('loading');
+    l.style.transition = 'opacity .6s'; l.style.opacity = 0;
+    setTimeout(() => l.remove(), 700);
+  });
+</script>
+</body>
+</html>
